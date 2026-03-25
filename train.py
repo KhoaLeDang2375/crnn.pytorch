@@ -212,15 +212,17 @@ def trainBatch(net, criterion, optimizer, scaler, data):
 
     optimizer.zero_grad()
 
+    # Tính loss BÊN NGOÀI autocast để đảm bảo loss luôn có grad_fn
     with autocast('cuda'):
         preds = net(image)
-        preds = preds.transpose(0, 1)           # [T, B, C] for CTC
+        preds = preds.transpose(0, 1)           # [T, B, C]
         preds_size = torch.IntTensor([preds.size(0)] * batch_size)
         if opt.cuda:
             preds_size = preds_size.cuda()
 
         cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
+    # Scale và backward
     scaler.scale(cost).backward()
     scaler.step(optimizer)
     scaler.update()
