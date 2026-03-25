@@ -22,25 +22,31 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--trainRoot', required=True, help='path to training lmdb')
 parser.add_argument('--valRoot', required=True, help='path to validation lmdb')
 parser.add_argument('--workers', type=int, default=4, help='number of data loading workers')
-parser.add_argument('--batchSize', type=int, default=128, help='input batch size (tăng được nhờ 2 GPU)')
+parser.add_argument('--batchSize', type=int, default=128, help='input batch size')
 parser.add_argument('--imgH', type=int, default=32, help='height of input image')
 parser.add_argument('--imgW', type=int, default=100, help='width of input image')
 parser.add_argument('--nh', type=int, default=256, help='size of LSTM hidden state')
 parser.add_argument('--nepoch', type=int, default=25, help='number of epochs')
-parser.add_argument('--cuda',action='store_true', help='enables cuda')
-parser.add_argument('--ngpu', type=int, default=2, help='number of GPUs to use (2 cho T4 x2)')  # <-- mặc định 2
+
+# ====================== THÊM/MỚI ======================
+parser.add_argument('--printEvery', type=int, default=100,
+                    help='print loss every N steps (default: 100)')
+parser.add_argument('--valEvery', type=int, default=500,
+                    help='run validation every N steps (default: 500)')
+# =====================================================
+
+parser.add_argument('--cuda', action='store_true', help='enables cuda')
+parser.add_argument('--ngpu', type=int, default=2, help='number of GPUs to use')
 parser.add_argument('--pretrained', default='', help="path to pretrained model")
 parser.add_argument('--alphabet', type=str, default='0123456789abcdefghijklmnopqrstuvwxyz')
 parser.add_argument('--dict', type=str, default='', help='Đường dẫn tới dict.txt')
 parser.add_argument('--expr_dir', default='expr', help='folder to save models')
-parser.add_argument('--displayInterval', type=int, default=500)
 parser.add_argument('--n_test_disp', type=int, default=10)
-parser.add_argument('--valInterval', type=int, default=500)
-parser.add_argument('--saveInterval', type=int, default=500)
+parser.add_argument('--saveInterval', type=int, default=500, help='save model every N steps')
 parser.add_argument('--lr', type=float, default=0.01)
 parser.add_argument('--beta1', type=float, default=0.5)
 parser.add_argument('--adam', action='store_true')
-parser.add_argument('--adadelta', action='store_true', default=True)  # Adadelta vẫn tốt cho CRNN
+parser.add_argument('--adadelta', action='store_true', default=True)
 parser.add_argument('--keep_ratio', action='store_true')
 parser.add_argument('--manualSeed', type=int, default=1234)
 parser.add_argument('--random_sample', action='store_true')
@@ -63,8 +69,8 @@ torch.manual_seed(opt.manualSeed)
 cudnn.benchmark = True
 
 # Dataset
-train_dataset = dataset.lmdbDataset(root=opt.trainRoot)   # <-- ĐÃ SỬA
-test_dataset = dataset.lmdbDataset(root=opt.valRoot, transform=dataset.resizeNormalize((100, 32)))  # <-- ĐÃ SỬA
+train_dataset = dataset.lmdbDataset(root=opt.trainRoot)
+test_dataset = dataset.lmdbDataset(root=opt.valRoot, transform=dataset.resizeNormalize((100, 32)))
 
 if not opt.random_sample:
     sampler = dataset.randomSequentialSampler(train_dataset, opt.batchSize)
@@ -77,7 +83,8 @@ train_loader = torch.utils.data.DataLoader(
     shuffle=True if sampler is None else False,
     sampler=sampler,
     num_workers=opt.workers,
-    collate_fn=dataset.alignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio=opt.keep_ratio))
+    collate_fn=dataset.alignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio=opt.keep_ratio),
+    pin_memory=True)   # ← khuyến nghị thêm
 
 nclass = len(opt.alphabet) + 1
 nc = 1
@@ -100,7 +107,6 @@ if opt.cuda:
     crnn_model = torch.nn.DataParallel(crnn_model, device_ids=range(opt.ngpu))
     criterion = criterion.cuda()
 
-# AMP scaler
 scaler = torch.amp.GradScaler('cuda')
 
 loss_avg = utils.averager()
@@ -114,44 +120,49 @@ else:
     optimizer = optim.RMSprop(crnn_model.parameters(), lr=opt.lr)
 
 
-
 def val(net, dataset, criterion, max_iter=100):
     print('Start validation...')
+    net.eval()
     for p in net.parameters():
         p.requires_grad = False
-    net.eval()
 
-    data_loader = torch.utils.data.DataLoader(dataset, shuffle=True, batch_size=opt.batchSize,
-                                              num_workers=opt.workers)
-    val_iter = iter(data_loader)
+    data_loader = torch.utils.data.DataLoader(
+        dataset, 
+        shuffle=False, 
+        batch_size=opt.batchSize,
+        num_workers=opt.workers,
+        pin_memory=True
+    )
 
     n_correct = 0
-    max_iter = min(max_iter, len(data_loader))
+    total_loss = 0.0
+    count = 0
 
     with torch.no_grad():
-        for i in tqdm(range(max_iter), desc="Validation"):
-            cpu_images, cpu_texts = next(val_iter)   # <-- fix .next()
+        for cpu_images, cpu_texts in tqdm(data_loader, desc="Validation"):
             batch_size = cpu_images.size(0)
-            
             text, length = converter.encode(cpu_texts)
 
             if opt.cuda:
-                image = cpu_images.cuda()
-                text = text.cuda()
-                length = length.cuda()
+                image = cpu_images.cuda(non_blocking=True)
+                text = text.cuda(non_blocking=True)
+                length = length.cuda(non_blocking=True)
             else:
                 image = cpu_images
 
-            with autocast('cuda'):   # AMP
+            with autocast('cuda'):
                 preds = net(image)
-                preds = preds.transpose(0, 1)  # [seq_len, batch, classes] for CTCLoss
+                preds = preds.transpose(0, 1)
                 preds_size = torch.IntTensor([preds.size(0)] * batch_size)
                 if opt.cuda:
                     preds_size = preds_size.cuda()
+
                 cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
-            loss_avg_val.add(cost)
+            total_loss += cost.item()
+            count += 1
 
+            # Decode & tính accuracy
             _, preds = preds.max(2)
             preds = preds.transpose(1, 0).contiguous().view(-1)
             sim_preds = converter.decode(preds, preds_size, raw=False)
@@ -160,59 +171,46 @@ def val(net, dataset, criterion, max_iter=100):
                 if pred == target.lower():
                     n_correct += 1
 
-    accuracy = n_correct / float(max_iter * opt.batchSize)
-    print(f'Test loss: {loss_avg_val.val():.4f}, Accuracy: {accuracy:.4f}')
+            if count >= max_iter:
+                break
+
+    accuracy = n_correct / float(count * opt.batchSize)
+    avg_loss = total_loss / count
+    print(f'Validation Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f}')
     return accuracy
-
-
-def trainBatch(net, criterion, optimizer, scaler, data):
-    cpu_images, cpu_texts = data
-    batch_size = cpu_images.size(0)
-    
-    text, length = converter.encode(cpu_texts)
-
-    if opt.cuda:
-        image = cpu_images.cuda()
-        text = text.cuda()
-        length = length.cuda()
-    else:
-        image = cpu_images
-
-    optimizer.zero_grad()
-    with autocast('cuda'):   # Mixed Precision
-        preds = net(image)
-        preds = preds.transpose(0, 1)  # [seq_len, batch, classes] for CTCLoss
-        preds_size = torch.IntTensor([preds.size(0)] * batch_size)
-        if opt.cuda:
-            preds_size = preds_size.cuda()
-        cost = criterion(preds.log_softmax(2), text, preds_size, length)
-
-    scaler.scale(cost).backward()
-    scaler.step(optimizer)
-    scaler.update()
-    return cost
 
 
 # ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
-    for i, data in enumerate(tqdm(train_loader, desc=f"Epoch {epoch}/{opt.nepoch}")):
-        crnn_model.train()
-        for p in crnn_model.parameters():
-            p.requires_grad = True
+    crnn_model.train()
+    epoch_loss = 0.0
+    step = 0
 
+    print(f"\n=== Epoch {epoch+1}/{opt.nepoch} ===")
+
+    for i, data in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}")):
+        step += 1
         cost = trainBatch(crnn_model, criterion, optimizer, scaler, data)
+        
+        epoch_loss += cost.item()
         loss_avg.add(cost)
 
-        # Cập nhật hiển thị log để không che khuất thanh Progress TQDM
-        if (i + 1) % opt.displayInterval == 0:
-            tqdm.write(f'[{epoch}/{opt.nepoch}][{i+1}/{len(train_loader)}] Loss: {loss_avg.val():.4f}')
+        # In loss theo số step
+        if step % opt.printEvery == 0:
+            tqdm.write(f'[Epoch {epoch+1}/{opt.nepoch}][Step {step}] Loss: {loss_avg.val():.4f}')
             loss_avg.reset()
 
-        if (i + 1) % opt.valInterval == 0:
+        # Validation theo số step
+        if step % opt.valEvery == 0:
             val(crnn_model, test_dataset, criterion)
 
-        if (i + 1) % opt.saveInterval == 0:
+        # Save model theo step
+        if step % opt.saveInterval == 0:
             torch.save(crnn_model.state_dict(),
-                       f'{opt.expr_dir}/netCRNN_{epoch}_{i+1}.pth')
+                       f'{opt.expr_dir}/netCRNN_epoch{epoch+1}_step{step}.pth')
+
+    # In loss trung bình của cả epoch
+    avg_epoch_loss = epoch_loss / len(train_loader)
+    print(f"⇒ Epoch {epoch+1} finished. Average Loss: {avg_epoch_loss:.4f}\n")
 
 print("Training finished!")
