@@ -77,4 +77,5 @@ class CRNN(nn.Module):
         # 2. Học ngữ cảnh chuỗi với RNN
         output = self.rnn(conv)
 
-        return output
+        # Transpose to [batch, seq_len, classes] for correct DataParallel gathering
+        return output.transpose(0, 1)

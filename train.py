@@ -144,6 +144,7 @@ def val(net, dataset, criterion, max_iter=100):
 
             with autocast('cuda'):   # AMP
                 preds = net(image)
+                preds = preds.transpose(0, 1)  # [seq_len, batch, classes] for CTCLoss
                 preds_size = torch.IntTensor([preds.size(0)] * batch_size)
                 if opt.cuda:
                     preds_size = preds_size.cuda()
@@ -180,6 +181,7 @@ def trainBatch(net, criterion, optimizer, scaler, data):
     optimizer.zero_grad()
     with autocast('cuda'):   # Mixed Precision
         preds = net(image)
+        preds = preds.transpose(0, 1)  # [seq_len, batch, classes] for CTCLoss
         preds_size = torch.IntTensor([preds.size(0)] * batch_size)
         if opt.cuda:
             preds_size = preds_size.cuda()
