@@ -29,7 +29,12 @@ def extract_alphabet(txt_paths, output_path):
     print(f"Trích xuất thành công {len(alphabet)} ký tự duy nhất.")
     print(f"Lưu Bộ từ vựng vào: {output_path}")
 
-if __name__ == '__main__':
-    # Đọc tất cả nhãn trong file txt để gom tất cả các ký tự tiếng Nhật/Ký hiệu
-    inputs = ['rec/rec_gt_train.txt', 'rec/rec_gt_val.txt']
-    extract_alphabet(inputs, 'dict.txt')
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train_txt', type=str, default='rec/rec_gt_train.txt', help='Đường dẫn file txt train')
+    parser.add_argument('--val_txt', type=str, default='rec/rec_gt_val.txt', help='Đường dẫn file txt val')
+    parser.add_argument('--out_dict', type=str, default='dict.txt', help='Tên tệp từ vựng đầu ra')
+    args = parser.parse_args()
+
+    inputs = [args.train_txt, args.val_txt]
+    extract_alphabet(inputs, args.out_dict)

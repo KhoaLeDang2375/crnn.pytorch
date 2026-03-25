@@ -84,17 +84,24 @@ def read_txt(txt_path, img_dir):
     return imagePathList, labelList
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train_txt', type=str, default='rec/rec_gt_train.txt')
+    parser.add_argument('--val_txt', type=str, default='rec/rec_gt_val.txt')
+    parser.add_argument('--img_dir', type=str, default='rec', help='Thư mục chứa ảnh chứa tiền tố đường dẫn')
+    parser.add_argument('--out_dir', type=str, default='lmdb_dataset')
+    args = parser.parse_args()
+
     # 1. Chuyển đổi tập Train
     print("Đang tạo LMDB cho tập Train...")
-    train_img_list, train_label_list = read_txt('rec/rec_gt_train.txt', 'rec')
-    # Tạo thư mục đầu ra
-    os.makedirs('lmdb_dataset/train', exist_ok=True)
-    createDataset('lmdb_dataset/train', train_img_list, train_label_list)
+    train_img_list, train_label_list = read_txt(args.train_txt, args.img_dir)
+    os.makedirs(f'{args.out_dir}/train', exist_ok=True)
+    createDataset(f'{args.out_dir}/train', train_img_list, train_label_list)
     
     # 2. Chuyển đổi tập Val
     print("\nĐang tạo LMDB cho tập Val...")
-    val_img_list, val_label_list = read_txt('rec/rec_gt_val.txt', 'rec')
-    os.makedirs('lmdb_dataset/val', exist_ok=True)
-    createDataset('lmdb_dataset/val', val_img_list, val_label_list)
+    val_img_list, val_label_list = read_txt(args.val_txt, args.img_dir)
+    os.makedirs(f'{args.out_dir}/val', exist_ok=True)
+    createDataset(f'{args.out_dir}/val', val_img_list, val_label_list)
     
-    print("\nHoàn tất! Bây giờ bạn có thể trỏ --trainRoot tới 'lmdb_dataset/train' và --valRoot tới 'lmdb_dataset/val'")
+    print(f"\nHoàn tất! Cấu trúc lưu tại thư mục: {args.out_dir}")
