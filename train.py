@@ -85,6 +85,14 @@ converter = utils.strLabelConverter(opt.alphabet)
 criterion = CTCLoss(zero_infinity=True)
 
 # Model
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
+
 crnn_model = crnn.CRNN(opt.imgH, nc, nclass, opt.nh)
 crnn_model.apply(weights_init)   # hàm weights_init ở dưới
 
@@ -124,13 +132,6 @@ elif opt.adadelta:
 else:
     optimizer = optim.RMSprop(crnn_model.parameters(), lr=opt.lr)
 
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
 
 
 def val(net, dataset, criterion, max_iter=100):
