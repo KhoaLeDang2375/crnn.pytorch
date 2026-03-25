@@ -20,7 +20,6 @@ echo "3. Bắt đầu quá trình huấn luyện mô hình..."
 python train.py \
     --trainRoot "$TRAIN_ROOT" \
     --valRoot "$VAL_ROOT" \
-    --workers 2 \
     --batchSize 64 \
     --imgH 32 \
     --imgW 256 \
