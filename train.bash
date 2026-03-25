@@ -13,10 +13,7 @@ TRAIN_ROOT="${1:-/kaggle/input/your-dataset-name/train}"
 VAL_ROOT="${2:-/kaggle/input/your-dataset-name/val}"
 
 echo "3. Bắt đầu quá trình huấn luyện mô hình..."
-# Giải thích các cờ (flags):
-# --adadelta: Khuyến nghị dùng Adadelta cho mô hình CRNN để tối ưu hoá tốc độ giảm loss
-# --keep_ratio: Giữ nguyên tỉ lệ hình dáng ảnh nếu kích thước tập dữ liệu không đều
-# --cuda: Kích hoạt chạy bằng GPU của Kaggle
+
 python train.py \
     --trainRoot "$TRAIN_ROOT" \
     --valRoot "$VAL_ROOT" \
@@ -25,7 +22,7 @@ python train.py \
     --imgW 256 \
     --nepoch 25 \
     --adadelta \
-    --cuda \
+    --cuda True \
     --dict "dict.txt" \
     --expr_dir "expr" \
     --workers 8

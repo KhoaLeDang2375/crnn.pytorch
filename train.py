@@ -27,7 +27,7 @@ parser.add_argument('--imgH', type=int, default=32, help='height of input image'
 parser.add_argument('--imgW', type=int, default=100, help='width of input image')
 parser.add_argument('--nh', type=int, default=256, help='size of LSTM hidden state')
 parser.add_argument('--nepoch', type=int, default=25, help='number of epochs')
-parser.add_argument('--cuda', action='store_true', help='enables cuda')
+parser.add_argument('--cuda',action='store_true', help='enables cuda')
 parser.add_argument('--ngpu', type=int, default=2, help='number of GPUs to use (2 cho T4 x2)')  # <-- mặc định 2
 parser.add_argument('--pretrained', default='', help="path to pretrained model")
 parser.add_argument('--alphabet', type=str, default='0123456789abcdefghijklmnopqrstuvwxyz')
@@ -133,16 +133,20 @@ def val(net, dataset, criterion, max_iter=100):
             cpu_images, cpu_texts = next(val_iter)   # <-- fix .next()
             batch_size = cpu_images.size(0)
             
+            text, length = converter.encode(cpu_texts)
+
             if opt.cuda:
                 image = cpu_images.cuda()
+                text = text.cuda()
+                length = length.cuda()
             else:
                 image = cpu_images
-                
-            text, length = converter.encode(cpu_texts)
 
             with autocast('cuda'):   # AMP
                 preds = net(image)
                 preds_size = torch.IntTensor([preds.size(0)] * batch_size)
+                if opt.cuda:
+                    preds_size = preds_size.cuda()
                 cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
             loss_avg_val.add(cost)
@@ -164,17 +168,21 @@ def trainBatch(net, criterion, optimizer, scaler, data):
     cpu_images, cpu_texts = data
     batch_size = cpu_images.size(0)
     
+    text, length = converter.encode(cpu_texts)
+
     if opt.cuda:
         image = cpu_images.cuda()
+        text = text.cuda()
+        length = length.cuda()
     else:
         image = cpu_images
-        
-    text, length = converter.encode(cpu_texts)
 
     optimizer.zero_grad()
     with autocast('cuda'):   # Mixed Precision
         preds = net(image)
         preds_size = torch.IntTensor([preds.size(0)] * batch_size)
+        if opt.cuda:
+            preds_size = preds_size.cuda()
         cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
     scaler.scale(cost).backward()
