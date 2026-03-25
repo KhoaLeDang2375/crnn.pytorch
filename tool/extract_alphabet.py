@@ -11,7 +11,7 @@ def extract_alphabet(txt_paths, output_path):
             for line in f:
                 line = line.strip()
                 if not line: continue
-                # Tương tự như hàm đọc data, tách bằng Tab hoặc kofng trắng
+                # Tương tự như hàm đọc data, tách bằng Tab hoặc khoảng trắng
                 parts = line.split('\t')
                 if len(parts) != 2:
                     parts = line.split(' ', 1)
@@ -29,6 +29,7 @@ def extract_alphabet(txt_paths, output_path):
     print(f"Trích xuất thành công {len(alphabet)} ký tự duy nhất.")
     print(f"Lưu Bộ từ vựng vào: {output_path}")
 
+if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_txt', type=str, default='rec/rec_gt_train.txt', help='Đường dẫn file txt train')
