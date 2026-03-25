@@ -207,7 +207,6 @@ def trainBatch(net, criterion, optimizer, scaler, data):
 
     optimizer.zero_grad()
 
-    # Tính loss ở ngoài autocast để tránh vấn đề grad_fn với CTC + DataParallel
     preds = net(image)
     preds = preds.transpose(0, 1)
     preds_size = torch.IntTensor([preds.size(0)] * batch_size)
@@ -221,7 +220,12 @@ def trainBatch(net, criterion, optimizer, scaler, data):
     scaler.update()
 
     return cost.detach()
+
+
 # ====================== TRAINING LOOP ======================
+best_cer = float('inf')
+best_epoch = 0
+
 for epoch in range(opt.nepoch):
     crnn_model.train()
     epoch_loss = 0.0
@@ -236,17 +240,32 @@ for epoch in range(opt.nepoch):
         epoch_loss += cost.item()
         loss_avg.add(cost)
 
-        # In loss theo số step
         if step % opt.printEvery == 0:
             tqdm.write(f'[Epoch {epoch+1}/{opt.nepoch}][Step {step}] Loss: {loss_avg.val():.4f}')
             loss_avg.reset()
 
-    val(crnn_model, test_dataset, criterion)
-    torch.save(crnn_model.state_dict(),
-                f'{opt.expr_dir}/netCRNN_epoch{epoch+1}_step{step}.pth')
-
-    # In loss trung bình của cả epoch
+    # In loss trung bình của epoch
     avg_epoch_loss = epoch_loss / len(train_loader)
-    print(f"⇒ Epoch {epoch+1} finished. Average Loss: {avg_epoch_loss:.4f}\n")
+    print(f"⇒ Epoch {epoch+1} finished. Average Loss: {avg_epoch_loss:.4f}")
 
-print("Training finished!")
+    # === Validation chỉ mỗi 5 epoch ===
+    if (epoch + 1) % 5 == 0 or (epoch + 1) == opt.nepoch:
+        print(f"\n→ Running Validation at epoch {epoch+1} ...")
+        accuracy, cer = val(crnn_model, test_dataset, criterion)
+
+        # Lưu model tốt nhất theo CER
+        if cer < best_cer:
+            best_cer = cer
+            best_epoch = epoch + 1
+            torch.save(crnn_model.state_dict(), f'{opt.expr_dir}/netCRNN_best.pth')
+            print(f"★ BEST MODEL UPDATED! Epoch {best_epoch} - CER: {cer:.2f}% → saved as netCRNN_best.pth")
+        else:
+            print(f"   Current CER: {cer:.2f}% (Best so far: {best_cer:.2f}% at epoch {best_epoch})")
+    else:
+        print("   (Validation will run every 5 epochs)")
+
+    print("-" * 70)
+
+print("\nTraining finished!")
+print(f"Best model saved at epoch {best_epoch} with CER = {best_cer:.2f}%")
+print(f"Model location: {opt.expr_dir}/netCRNN_best.pth")
