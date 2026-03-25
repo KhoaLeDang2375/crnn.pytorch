@@ -17,6 +17,8 @@ import dataset
 import models.crnn as crnn
 from torch.amp import autocast
 from tqdm import tqdm
+
+parser = argparse.ArgumentParser()
 parser.add_argument('--trainRoot', required=True, help='path to training lmdb')
 parser.add_argument('--valRoot', required=True, help='path to validation lmdb')
 parser.add_argument('--workers', type=int, default=4, help='number of data loading workers')
