@@ -1,0 +1,33 @@
+#!/bin/bash
+# Script to train CRNN + MobileNetV3 trên môi trường Kaggle Notebooks
+
+echo "1. Cài đặt các thư viện phụ thuộc..."
+pip install -r requirements.txt
+
+echo "2. Chuẩn bị thư mục lưu mô hình..."
+mkdir -p expr
+
+# 3. Định cấu hình đường dẫn tới Dataset trên hệ thống của Kaggle
+# Lưu ý: Sửa 'your-dataset-name' thành đúng tên Folder Dataset bạn đã Add Data trên Kaggle!!!
+TRAIN_ROOT="/kaggle/input/your-dataset-name/train"
+VAL_ROOT="/kaggle/input/your-dataset-name/val"
+
+echo "3. Bắt đầu quá trình huấn luyện mô hình..."
+# Giải thích các cờ (flags):
+# --adadelta: Khuyến nghị dùng Adadelta cho mô hình CRNN để tối ưu hoá tốc độ giảm loss
+# --keep_ratio: Giữ nguyên tỉ lệ hình dáng ảnh nếu kích thước tập dữ liệu không đều
+# --cuda: Kích hoạt chạy bằng GPU của Kaggle
+python train.py \
+    --trainRoot "$TRAIN_ROOT" \
+    --valRoot "$VAL_ROOT" \
+    --workers 2 \
+    --batchSize 64 \
+    --imgH 32 \
+    --imgW 100 \
+    --nepoch 25 \
+    --adadelta \
+    --keep_ratio \
+    --cuda \
+    --expr_dir "expr"
+
+echo "Quá trình huấn luyện đã kết thúc. Bạn có thể kiểm tra mục Output để tải về biến thể của file models (.pth)!"

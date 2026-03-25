@@ -9,7 +9,7 @@ import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
-from warpctc_pytorch import CTCLoss
+from torch.nn import CTCLoss
 import os
 import utils
 import dataset
@@ -75,7 +75,7 @@ nclass = len(opt.alphabet) + 1
 nc = 1
 
 converter = utils.strLabelConverter(opt.alphabet)
-criterion = CTCLoss()
+criterion = CTCLoss(zero_infinity=True)
 
 
 # custom weights initialization called on crnn
@@ -150,7 +150,7 @@ def val(net, dataset, criterion, max_iter=100):
 
         preds = crnn(image)
         preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-        cost = criterion(preds, text, preds_size, length) / batch_size
+        cost = criterion(preds.log_softmax(2), text, preds_size, length)
         loss_avg.add(cost)
 
         _, preds = preds.max(2)
@@ -180,7 +180,7 @@ def trainBatch(net, criterion, optimizer):
 
     preds = crnn(image)
     preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-    cost = criterion(preds, text, preds_size, length) / batch_size
+    cost = criterion(preds.log_softmax(2), text, preds_size, length)
     crnn.zero_grad()
     cost.backward()
     optimizer.step()
