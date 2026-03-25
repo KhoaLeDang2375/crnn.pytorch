@@ -16,7 +16,10 @@ import numpy as np
 class lmdbDataset(Dataset):
 
     def __init__(self, root=None, transform=None, target_transform=None):
-        self.env = lmdb.open(
+        self.root = root
+        self.env = None
+        
+        env = lmdb.open(
             root,
             max_readers=1,
             readonly=True,
@@ -24,13 +27,15 @@ class lmdbDataset(Dataset):
             readahead=False,
             meminit=False)
 
-        if not self.env:
+        if not env:
             print('cannot creat lmdb from %s' % (root))
             sys.exit(0)
 
-        with self.env.begin(write=False) as txn:
+        with env.begin(write=False) as txn:
             nSamples = int(txn.get(b'num-samples'))
             self.nSamples = nSamples
+            
+        env.close()
 
         self.transform = transform
         self.target_transform = target_transform
@@ -41,6 +46,16 @@ class lmdbDataset(Dataset):
     def __getitem__(self, index):
         assert index <= len(self), 'index range error'
         index += 1
+        
+        if self.env is None:
+            self.env = lmdb.open(
+                self.root,
+                max_readers=128,
+                readonly=True,
+                lock=False,
+                readahead=False,
+                meminit=False)
+                
         with self.env.begin(write=False) as txn:
             img_key = b'image-%09d' % index
             imgbuf = txn.get(img_key)
