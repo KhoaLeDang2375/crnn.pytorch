@@ -23,12 +23,13 @@ python train.py \
     --workers 2 \
     --batchSize 64 \
     --imgH 32 \
-    --imgW 100 \
+    --imgW 256 \
     --nepoch 25 \
     --adadelta \
     --keep_ratio \
     --cuda \
     --dict "dict.txt" \
-    --expr_dir "expr"
+    --expr_dir "expr" \
+    --workers 8
 
 echo "Quá trình huấn luyện đã kết thúc. Bạn có thể kiểm tra mục Output để tải về biến thể của file models (.pth)!"
