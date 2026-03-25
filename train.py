@@ -179,7 +179,35 @@ def val(net, dataset, criterion, max_iter=100):
     print(f'Validation Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f}')
     return accuracy
 
+def trainBatch(net, criterion, optimizer, scaler, data):
+    cpu_images, cpu_texts = data
+    batch_size = cpu_images.size(0)
+    
+    text, length = converter.encode(cpu_texts)
 
+    if opt.cuda:
+        image = cpu_images.cuda(non_blocking=True)
+        text = text.cuda(non_blocking=True)
+        length = length.cuda(non_blocking=True)
+    else:
+        image = cpu_images
+
+    optimizer.zero_grad()
+
+    with autocast('cuda'):
+        preds = net(image)
+        preds = preds.transpose(0, 1)           # [T, B, C] for CTC
+        preds_size = torch.IntTensor([preds.size(0)] * batch_size)
+        if opt.cuda:
+            preds_size = preds_size.cuda()
+
+        cost = criterion(preds.log_softmax(2), text, preds_size, length)
+
+    scaler.scale(cost).backward()
+    scaler.step(optimizer)
+    scaler.update()
+
+    return cost
 # ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
     crnn_model.train()
