@@ -102,17 +102,6 @@ if opt.cuda:
 # AMP scaler
 scaler = torch.amp.GradScaler('cuda')
 
-image = torch.FloatTensor(opt.batchSize, 3, opt.imgH, opt.imgH)
-text = torch.IntTensor(opt.batchSize * 5)
-length = torch.IntTensor(opt.batchSize)
-
-if opt.cuda:
-    image = image.cuda()
-
-image = Variable(image)
-text = Variable(text)
-length = Variable(length)
-
 loss_avg = utils.averager()
 
 # Optimizer
@@ -143,10 +132,13 @@ def val(net, dataset, criterion, max_iter=100):
         for i in range(max_iter):
             cpu_images, cpu_texts = next(val_iter)   # <-- fix .next()
             batch_size = cpu_images.size(0)
-            utils.loadData(image, cpu_images)
-            t, l = converter.encode(cpu_texts)
-            utils.loadData(text, t)
-            utils.loadData(length, l)
+            
+            if opt.cuda:
+                image = cpu_images.cuda()
+            else:
+                image = cpu_images
+                
+            text, length = converter.encode(cpu_texts)
 
             with autocast():   # AMP
                 preds = net(image)
@@ -172,15 +164,18 @@ def trainBatch(net, criterion, optimizer, scaler):
     data = next(train_iter)
     cpu_images, cpu_texts = data
     batch_size = cpu_images.size(0)
-    utils.loadData(image, cpu_images)
-    t, l = converter.encode(cpu_texts)
-    utils.loadData(text, t)
-    utils.loadData(length, l)
+    
+    if opt.cuda:
+        image = cpu_images.cuda()
+    else:
+        image = cpu_images
+        
+    text, length = converter.encode(cpu_texts)
 
     optimizer.zero_grad()
     with autocast():   # Mixed Precision
         preds = net(image)
-        preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
+        preds_size = torch.IntTensor([preds.size(0)] * batch_size)
         cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
     scaler.scale(cost).backward()
