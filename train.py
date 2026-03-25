@@ -246,14 +246,9 @@ for epoch in range(opt.nepoch):
             tqdm.write(f'[Epoch {epoch+1}/{opt.nepoch}][Step {step}] Loss: {loss_avg.val():.4f}')
             loss_avg.reset()
 
-        # Validation theo số step
-        if step % opt.valEvery == 0:
-            val(crnn_model, test_dataset, criterion)
-
-        # Save model theo step
-        if step % opt.saveInterval == 0:
-            torch.save(crnn_model.state_dict(),
-                       f'{opt.expr_dir}/netCRNN_epoch{epoch+1}_step{step}.pth')
+    val(crnn_model, test_dataset, criterion)
+    torch.save(crnn_model.state_dict(),
+                f'{opt.expr_dir}/netCRNN_epoch{epoch+1}_step{step}.pth')
 
     # In loss trung bình của cả epoch
     avg_epoch_loss = epoch_loss / len(train_loader)
