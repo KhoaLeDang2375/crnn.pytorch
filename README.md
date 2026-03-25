@@ -1,39 +1,78 @@
-Convolutional Recurrent Neural Network
-======================================
+# CRNN (MobileNetV3 Powered)
 
-This software implements the Convolutional Recurrent Neural Network (CRNN) in pytorch.
-Origin software could be found in [crnn](https://github.com/bgshih/crnn)
+This software implements the Convolutional Recurrent Neural Network (CRNN) in PyTorch for image-based sequence recognition (scene text recognition/OCR), based on the paper *An end-to-end trainable neural network for image-based sequence recognition*.
 
-Run demo
---------
-A demo program can be found in ``demo.py``. Before running the demo, download a pretrained model
-from [Baidu Netdisk](https://pan.baidu.com/s/1pLbeCND) or [Dropbox](https://www.dropbox.com/s/dboqjk20qjkpta3/crnn.pth?dl=0). 
-This pretrained model is converted from auther offered one by ``tool``.
-Put the downloaded model file ``crnn.pth`` into directory ``data/``. Then launch the demo by:
+## 🚀 Key Updates & Features
+1. **Lightweight Backbone**: Replaced the original VGG architecture with `MobileNetV3` (Pre-trained), ensuring much faster training & inference speed, ideal for mobile or edge deployments while preserving required sequence lengths.
+2. **Kaggle & Modern PyTorch Ready**: Completely removed the outdated and buggy `warp_ctc_pytorch`. It now uses native `torch.nn.CTCLoss`, ensuring 0 conflicts out of the box on modern PyTorch (≥1.7).
+3. **Multi-Language Support (Japanese/Chinese etc.)**: Added tools to extract custom character dictionaries dynamically, breaking the barrier of the hard-coded English-only alphabets.
 
-    python demo.py
+---
 
-The demo reads an example image and recognizes its text content.
+## 💻 Environment Setup
+Clone the repository and install the dependencies:
+```bash
+pip install -r requirements.txt
+# Requirements include: lmdb, Pillow, torch>=1.7.0, torchvision>=0.8.0
+```
 
-Example image:
-![Example Image](./data/demo.png)
+---
 
-Expected output:
-    loading pretrained model from ./data/crnn.pth
-    a-----v--a-i-l-a-bb-l-ee-- => available
+## 🏃‍♂️ Training Workflow (End-to-End)
 
-Dependence
-----------
-* [warp_ctc_pytorch](https://github.com/SeanNaren/warp-ctc/tree/pytorch_bindings/pytorch_binding)
-* lmdb
+If you have your own data (e.g., Japanese text images) labeled in a text file (where lines are formatted like `path/to/img.png \t Your_Label`), follow these steps:
 
-Train a new model
------------------
-1. Construct dataset following [origin guide](https://github.com/bgshih/crnn#train-a-new-model). If you want to train with variable length images (keep the origin ratio for example), please modify the `tool/create_dataset.py` and sort the image according to the text length.
-2. Execute ``python train.py --adadelta --trainRoot {train_path} --valRoot {val_path} --cuda``. Explore ``train.py`` for details.
+### Step 1: Extract Alphabet Dictionary
+The model needs to know exactly what characters exist in your dataset (especially important for non-English languages). Run the alphabet extractor tools to scan your ground-truth text files:
+```bash
+python tool/extract_alphabet.py
+```
+*This will create a `dict.txt` file containing all unique characters located in your training labels.*
 
-Cite
-----
+### Step 2: Convert Dataset to LMDB formats
+CRNN relies on the **LMDB** format for lightning-fast disk I/O during training. Convert your raw images and `txt` labels into LMDB format:
+```bash
+python tool/create_lmdb_dataset.py
+```
+*This generates an `lmdb_dataset/` directory holding your `train` and `val` data ready for PyTorch.*
+
+### Step 3: Run Training (Kaggle or Local)
+You can directly run training via the provided bash script. If using Kaggle, open the `train.bash` file to change `TRAIN_ROOT` and `VAL_ROOT` pointing to your dataset appropriately.
+
+```bash
+bash train.bash
+```
+
+Alternatively, run the manual python command:
+```bash
+python train.py \
+    --trainRoot lmdb_dataset/train \
+    --valRoot lmdb_dataset/val \
+    --batchSize 64 \
+    --imgH 32 \
+    --imgW 100 \
+    --nepoch 25 \
+    --adadelta \
+    --keep_ratio \
+    --cuda \
+    --dict dict.txt \
+    --expr_dir expr
+```
+**Flags definition**:
+- `--dict`: Path to your custom dictionary (e.g., `dict.txt`), overriding the default English alphabet.
+- `--keep_ratio`: Pads images instead of stretching them, preserving the original text aspect ratio.
+- `--cuda`: Train strictly on GPU.
+- `--adadelta`: Adadelta optimizer (highly recommended for CRNN).
+
+Expected output format:
+```text
+[0/25][100/1000] Loss: 2.1345
+```
+Model checkpoints `.pth` will be dumped into the `--expr_dir` (default: `expr/`) after training intervals.
+
+---
+
+## 📚 Cite
 ```tex
 @article{shi2016end,
   title={An end-to-end trainable neural network for image-based sequence recognition and its application to scene text recognition},

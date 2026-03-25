@@ -7,10 +7,10 @@ pip install -r requirements.txt
 echo "2. Chuẩn bị thư mục lưu mô hình..."
 mkdir -p expr
 
-# 3. Định cấu hình đường dẫn tới Dataset trên hệ thống của Kaggle
-# Lưu ý: Sửa 'your-dataset-name' thành đúng tên Folder Dataset bạn đã Add Data trên Kaggle!!!
-TRAIN_ROOT="/kaggle/input/your-dataset-name/train"
-VAL_ROOT="/kaggle/input/your-dataset-name/val"
+# Nhận đường dẫn Dataset từ tham số truyền vào Kaggle Cell (nếu có).
+# Nếu không truyền, dùng thư mục mặc định bên dưới:
+TRAIN_ROOT="${1:-/kaggle/input/your-dataset-name/train}"
+VAL_ROOT="${2:-/kaggle/input/your-dataset-name/val}"
 
 echo "3. Bắt đầu quá trình huấn luyện mô hình..."
 # Giải thích các cờ (flags):
@@ -28,6 +28,7 @@ python train.py \
     --adadelta \
     --keep_ratio \
     --cuda \
+    --dict "dict.txt" \
     --expr_dir "expr"
 
 echo "Quá trình huấn luyện đã kết thúc. Bạn có thể kiểm tra mục Output để tải về biến thể của file models (.pth)!"
