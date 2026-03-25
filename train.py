@@ -100,7 +100,7 @@ if opt.cuda:
     criterion = criterion.cuda()
 
 # AMP scaler
-scaler = GradScaler()
+scaler = torch.amp.GradScaler('cuda')
 
 image = torch.FloatTensor(opt.batchSize, 3, opt.imgH, opt.imgH)
 text = torch.IntTensor(opt.batchSize * 5)
