@@ -1,6 +1,6 @@
 from __future__ import print_function
 from __future__ import division
-
+import editdistance 
 import argparse
 import random
 import torch
@@ -120,6 +120,7 @@ else:
     optimizer = optim.RMSprop(crnn_model.parameters(), lr=opt.lr)
 
 
+
 def val(net, dataset, criterion, max_iter=100):
     print('Start validation...')
     net.eval()
@@ -134,8 +135,10 @@ def val(net, dataset, criterion, max_iter=100):
         pin_memory=True
     )
 
-    n_correct = 0
     total_loss = 0.0
+    n_correct = 0          # exact match
+    total_ed = 0           # tổng edit distance
+    total_length = 0       # tổng độ dài ground truth
     count = 0
 
     with torch.no_grad():
@@ -162,22 +165,37 @@ def val(net, dataset, criterion, max_iter=100):
             total_loss += cost.item()
             count += 1
 
-            # Decode & tính accuracy
+            # Decode prediction
             _, preds = preds.max(2)
             preds = preds.transpose(1, 0).contiguous().view(-1)
             sim_preds = converter.decode(preds, preds_size, raw=False)
 
+            # Tính metrics
             for pred, target in zip(sim_preds, cpu_texts):
-                if pred == target.lower():
+                target = target.lower().strip()
+                pred = pred.strip()
+
+                if pred == target:
                     n_correct += 1
+
+                # Edit distance cho CER
+                ed = editdistance.eval(pred, target)
+                total_ed += ed
+                total_length += len(target)
 
             if count >= max_iter:
                 break
 
-    accuracy = n_correct / float(count * opt.batchSize)
     avg_loss = total_loss / count
-    print(f'Validation Loss: {avg_loss:.4f} | Accuracy: {accuracy:.4f}')
-    return accuracy
+    accuracy = n_correct / float(count * opt.batchSize)
+    cer = (total_ed / total_length) * 100 if total_length > 0 else 0.0
+
+    print(f'Validation Loss     : {avg_loss:.4f}')
+    print(f'Exact Accuracy      : {accuracy:.4f} ({n_correct}/{count*opt.batchSize})')
+    print(f'Character Error Rate: {cer:.2f}%')
+    print('-' * 60)
+
+    return accuracy, cer
 
 def trainBatch(net, criterion, optimizer, scaler, data):
     cpu_images, cpu_texts = data
