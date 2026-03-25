@@ -25,7 +25,6 @@ python train.py \
     --imgW 256 \
     --nepoch 25 \
     --adadelta \
-    --keep_ratio \
     --cuda \
     --dict "dict.txt" \
     --expr_dir "expr" \

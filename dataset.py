@@ -21,7 +21,7 @@ class lmdbDataset(Dataset):
         
         env = lmdb.open(
             root,
-            max_readers=1,
+            max_readers=32,
             readonly=True,
             lock=False,
             readahead=False,
