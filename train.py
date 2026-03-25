@@ -212,23 +212,18 @@ def trainBatch(net, criterion, optimizer, scaler, data):
 
     optimizer.zero_grad()
 
-    
     preds = net(image)
-    preds = preds.transpose(0, 1)                    # [T, B, C]
+    preds = preds.transpose(0, 1)
     preds_size = torch.IntTensor([preds.size(0)] * batch_size)
     if opt.cuda:
         preds_size = preds_size.cuda()
 
-    # Tính loss ở full precision (float32) để đảm bảo có grad_fn
-    log_probs = preds.log_softmax(2)
-    cost = criterion(log_probs, text, preds_size, length)
+    cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
-    # Scale và backward
-    scaler.scale(cost).backward()
-    scaler.step(optimizer)
-    scaler.update()
+    cost.backward()          # backward bình thường, không scaler
+    optimizer.step()
 
-    return cost.detach()   # detach để tránh leak graph
+    return cost
 # ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
     crnn_model.train()
