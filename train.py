@@ -15,40 +15,41 @@ import utils
 import dataset
 
 import models.crnn as crnn
+from torch.cuda.amp import autocast, GradScaler   
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--trainRoot', required=True, help='path to dataset')
-parser.add_argument('--valRoot', required=True, help='path to dataset')
-parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
-parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
-parser.add_argument('--imgH', type=int, default=32, help='the height of the input image to network')
-parser.add_argument('--imgW', type=int, default=100, help='the width of the input image to network')
-parser.add_argument('--nh', type=int, default=256, help='size of the lstm hidden state')
-parser.add_argument('--nepoch', type=int, default=25, help='number of epochs to train for')
-# TODO(meijieru): epoch -> iter
+parser.add_argument('--trainRoot', required=True, help='path to training lmdb')
+parser.add_argument('--valRoot', required=True, help='path to validation lmdb')
+parser.add_argument('--workers', type=int, default=4, help='number of data loading workers')
+parser.add_argument('--batchSize', type=int, default=128, help='input batch size (tăng được nhờ 2 GPU)')
+parser.add_argument('--imgH', type=int, default=32, help='height of input image')
+parser.add_argument('--imgW', type=int, default=100, help='width of input image')
+parser.add_argument('--nh', type=int, default=256, help='size of LSTM hidden state')
+parser.add_argument('--nepoch', type=int, default=25, help='number of epochs')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
-parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
-parser.add_argument('--pretrained', default='', help="path to pretrained model (to continue training)")
+parser.add_argument('--ngpu', type=int, default=2, help='number of GPUs to use (2 cho T4 x2)')  # <-- mặc định 2
+parser.add_argument('--pretrained', default='', help="path to pretrained model")
 parser.add_argument('--alphabet', type=str, default='0123456789abcdefghijklmnopqrstuvwxyz')
-parser.add_argument('--dict', type=str, default='', help='Đường dẫn tới file dict.txt chứa bộ từ vựng (ví dụ Tiếng Nhật)')
-parser.add_argument('--expr_dir', default='expr', help='Where to store samples and models')
-parser.add_argument('--displayInterval', type=int, default=500, help='Interval to be displayed')
-parser.add_argument('--n_test_disp', type=int, default=10, help='Number of samples to display when test')
-parser.add_argument('--valInterval', type=int, default=500, help='Interval to be displayed')
-parser.add_argument('--saveInterval', type=int, default=500, help='Interval to be displayed')
-parser.add_argument('--lr', type=float, default=0.01, help='learning rate for Critic, not used by adadealta')
-parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-parser.add_argument('--adam', action='store_true', help='Whether to use adam (default is rmsprop)')
-parser.add_argument('--adadelta', action='store_true', help='Whether to use adadelta (default is rmsprop)')
-parser.add_argument('--keep_ratio', action='store_true', help='whether to keep ratio for image resize')
-parser.add_argument('--manualSeed', type=int, default=1234, help='reproduce experiemnt')
-parser.add_argument('--random_sample', action='store_true', help='whether to sample the dataset with random sampler')
+parser.add_argument('--dict', type=str, default='', help='Đường dẫn tới dict.txt')
+parser.add_argument('--expr_dir', default='expr', help='folder to save models')
+parser.add_argument('--displayInterval', type=int, default=500)
+parser.add_argument('--n_test_disp', type=int, default=10)
+parser.add_argument('--valInterval', type=int, default=500)
+parser.add_argument('--saveInterval', type=int, default=500)
+parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--beta1', type=float, default=0.5)
+parser.add_argument('--adam', action='store_true')
+parser.add_argument('--adadelta', action='store_true', default=True)  # Adadelta vẫn tốt cho CRNN
+parser.add_argument('--keep_ratio', action='store_true')
+parser.add_argument('--manualSeed', type=int, default=1234)
+parser.add_argument('--random_sample', action='store_true')
+
 opt = parser.parse_args()
 
-# Đọc bộ từ vựng từ file dict thay cho alphabet tiếng Anh mặc định nếu được cung cấp
-if opt.dict != '':
+# Load multi-language alphabet
+if opt.dict:
     with open(opt.dict, 'r', encoding='utf-8') as f:
-        opt.alphabet = f.read()
+        opt.alphabet = f.read().strip()
 
 print(opt)
 
@@ -58,25 +59,24 @@ if not os.path.exists(opt.expr_dir):
 random.seed(opt.manualSeed)
 np.random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
-
 cudnn.benchmark = True
 
-if torch.cuda.is_available() and not opt.cuda:
-    print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+# Dataset
+train_dataset = dataset.lmdbDataset(root=opt.trainRoot)   # <-- ĐÃ SỬA
+test_dataset = dataset.lmdbDataset(root=opt.valRoot, transform=dataset.resizeNormalize((100, 32)))  # <-- ĐÃ SỬA
 
-train_dataset = dataset.lmdbDataset(root=opt.trainroot)
-assert train_dataset
 if not opt.random_sample:
     sampler = dataset.randomSequentialSampler(train_dataset, opt.batchSize)
 else:
     sampler = None
+
 train_loader = torch.utils.data.DataLoader(
-    train_dataset, batch_size=opt.batchSize,
-    shuffle=True, sampler=sampler,
-    num_workers=int(opt.workers),
+    train_dataset,
+    batch_size=opt.batchSize,
+    shuffle=True,
+    sampler=sampler,
+    num_workers=opt.workers,
     collate_fn=dataset.alignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio=opt.keep_ratio))
-test_dataset = dataset.lmdbDataset(
-    root=opt.valroot, transform=dataset.resizeNormalize((100, 32)))
 
 nclass = len(opt.alphabet) + 1
 nc = 1
@@ -84,8 +84,46 @@ nc = 1
 converter = utils.strLabelConverter(opt.alphabet)
 criterion = CTCLoss(zero_infinity=True)
 
+# Model
+crnn_model = crnn.CRNN(opt.imgH, nc, nclass, opt.nh)
+crnn_model.apply(weights_init)   # hàm weights_init ở dưới
 
-# custom weights initialization called on crnn
+if opt.pretrained:
+    print('loading pretrained model from %s' % opt.pretrained)
+    crnn_model.load_state_dict(torch.load(opt.pretrained))
+
+print(crnn_model)
+
+# GPU + DataParallel + AMP
+if opt.cuda:
+    crnn_model = crnn_model.cuda()
+    crnn_model = torch.nn.DataParallel(crnn_model, device_ids=range(opt.ngpu))
+    criterion = criterion.cuda()
+
+# AMP scaler
+scaler = GradScaler()
+
+image = torch.FloatTensor(opt.batchSize, 3, opt.imgH, opt.imgH)
+text = torch.IntTensor(opt.batchSize * 5)
+length = torch.IntTensor(opt.batchSize)
+
+if opt.cuda:
+    image = image.cuda()
+
+image = Variable(image)
+text = Variable(text)
+length = Variable(length)
+
+loss_avg = utils.averager()
+
+# Optimizer
+if opt.adam:
+    optimizer = optim.Adam(crnn_model.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+elif opt.adadelta:
+    optimizer = optim.Adadelta(crnn_model.parameters())
+else:
+    optimizer = optim.RMSprop(crnn_model.parameters(), lr=opt.lr)
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -95,88 +133,50 @@ def weights_init(m):
         m.bias.data.fill_(0)
 
 
-crnn = crnn.CRNN(opt.imgH, nc, nclass, opt.nh)
-crnn.apply(weights_init)
-if opt.pretrained != '':
-    print('loading pretrained model from %s' % opt.pretrained)
-    crnn.load_state_dict(torch.load(opt.pretrained))
-print(crnn)
-
-image = torch.FloatTensor(opt.batchSize, 3, opt.imgH, opt.imgH)
-text = torch.IntTensor(opt.batchSize * 5)
-length = torch.IntTensor(opt.batchSize)
-
-if opt.cuda:
-    crnn.cuda()
-    crnn = torch.nn.DataParallel(crnn, device_ids=range(opt.ngpu))
-    image = image.cuda()
-    criterion = criterion.cuda()
-
-image = Variable(image)
-text = Variable(text)
-length = Variable(length)
-
-# loss averager
-loss_avg = utils.averager()
-
-# setup optimizer
-if opt.adam:
-    optimizer = optim.Adam(crnn.parameters(), lr=opt.lr,
-                           betas=(opt.beta1, 0.999))
-elif opt.adadelta:
-    optimizer = optim.Adadelta(crnn.parameters())
-else:
-    optimizer = optim.RMSprop(crnn.parameters(), lr=opt.lr)
-
-
 def val(net, dataset, criterion, max_iter=100):
-    print('Start val')
-
-    for p in crnn.parameters():
+    print('Start validation...')
+    for p in net.parameters():
         p.requires_grad = False
-
     net.eval()
-    data_loader = torch.utils.data.DataLoader(
-        dataset, shuffle=True, batch_size=opt.batchSize, num_workers=int(opt.workers))
+
+    data_loader = torch.utils.data.DataLoader(dataset, shuffle=True, batch_size=opt.batchSize,
+                                              num_workers=opt.workers)
     val_iter = iter(data_loader)
 
-    i = 0
     n_correct = 0
-    loss_avg = utils.averager()
-
+    loss_avg_val = utils.averager()
     max_iter = min(max_iter, len(data_loader))
-    for i in range(max_iter):
-        data = val_iter.next()
-        i += 1
-        cpu_images, cpu_texts = data
-        batch_size = cpu_images.size(0)
-        utils.loadData(image, cpu_images)
-        t, l = converter.encode(cpu_texts)
-        utils.loadData(text, t)
-        utils.loadData(length, l)
 
-        preds = crnn(image)
-        preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-        cost = criterion(preds.log_softmax(2), text, preds_size, length)
-        loss_avg.add(cost)
+    with torch.no_grad():
+        for i in range(max_iter):
+            cpu_images, cpu_texts = next(val_iter)   # <-- fix .next()
+            batch_size = cpu_images.size(0)
+            utils.loadData(image, cpu_images)
+            t, l = converter.encode(cpu_texts)
+            utils.loadData(text, t)
+            utils.loadData(length, l)
 
-        _, preds = preds.max(2)
-        preds = preds.squeeze(2)
-        preds = preds.transpose(1, 0).contiguous().view(-1)
-        sim_preds = converter.decode(preds.data, preds_size.data, raw=False)
-        for pred, target in zip(sim_preds, cpu_texts):
-            if pred == target.lower():
-                n_correct += 1
+            with autocast():   # AMP
+                preds = net(image)
+                preds_size = torch.IntTensor([preds.size(0)] * batch_size)
+                cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
-    raw_preds = converter.decode(preds.data, preds_size.data, raw=True)[:opt.n_test_disp]
-    for raw_pred, pred, gt in zip(raw_preds, sim_preds, cpu_texts):
-        print('%-20s => %-20s, gt: %-20s' % (raw_pred, pred, gt))
+            loss_avg_val.add(cost)
+
+            _, preds = preds.max(2)
+            preds = preds.squeeze(2).transpose(1, 0).contiguous().view(-1)
+            sim_preds = converter.decode(preds, preds_size, raw=False)
+
+            for pred, target in zip(sim_preds, cpu_texts):
+                if pred == target.lower():
+                    n_correct += 1
 
     accuracy = n_correct / float(max_iter * opt.batchSize)
-    print('Test loss: %f, accuray: %f' % (loss_avg.val(), accuracy))
+    print(f'Test loss: {loss_avg_val.val():.4f}, Accuracy: {accuracy:.4f}')
+    return accuracy
 
 
-def trainBatch(net, criterion, optimizer):
+def trainBatch(net, criterion, optimizer, scaler):
     data = train_iter.next()
     cpu_images, cpu_texts = data
     batch_size = cpu_images.size(0)
@@ -185,36 +185,40 @@ def trainBatch(net, criterion, optimizer):
     utils.loadData(text, t)
     utils.loadData(length, l)
 
-    preds = crnn(image)
-    preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-    cost = criterion(preds.log_softmax(2), text, preds_size, length)
-    crnn.zero_grad()
-    cost.backward()
-    optimizer.step()
+    optimizer.zero_grad()
+    with autocast():   # Mixed Precision
+        preds = net(image)
+        preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
+        cost = criterion(preds.log_softmax(2), text, preds_size, length)
+
+    scaler.scale(cost).backward()
+    scaler.step(optimizer)
+    scaler.update()
     return cost
 
 
+# ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
     train_iter = iter(train_loader)
     i = 0
     while i < len(train_loader):
-        for p in crnn.parameters():
+        crnn_model.train()
+        for p in crnn_model.parameters():
             p.requires_grad = True
-        crnn.train()
 
-        cost = trainBatch(crnn, criterion, optimizer)
+        cost = trainBatch(crnn_model, criterion, optimizer, scaler)
         loss_avg.add(cost)
         i += 1
 
         if i % opt.displayInterval == 0:
-            print('[%d/%d][%d/%d] Loss: %f' %
-                  (epoch, opt.nepoch, i, len(train_loader), loss_avg.val()))
+            print(f'[{epoch}/{opt.nepoch}][{i}/{len(train_loader)}] Loss: {loss_avg.val():.4f}')
             loss_avg.reset()
 
         if i % opt.valInterval == 0:
-            val(crnn, test_dataset, criterion)
+            val(crnn_model, test_dataset, criterion)
 
-        # do checkpointing
         if i % opt.saveInterval == 0:
-            torch.save(
-                crnn.state_dict(), '{0}/netCRNN_{1}_{2}.pth'.format(opt.expr_dir, epoch, i))
+            torch.save(crnn_model.state_dict(),
+                       f'{opt.expr_dir}/netCRNN_{epoch}_{i}.pth')
+
+print("Training finished!")
