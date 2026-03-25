@@ -15,9 +15,8 @@ import utils
 import dataset
 
 import models.crnn as crnn
-from torch.cuda.amp import autocast, GradScaler   
-
-parser = argparse.ArgumentParser()
+from torch.amp import autocast
+from tqdm import tqdm
 parser.add_argument('--trainRoot', required=True, help='path to training lmdb')
 parser.add_argument('--valRoot', required=True, help='path to validation lmdb')
 parser.add_argument('--workers', type=int, default=4, help='number of data loading workers')
@@ -125,11 +124,10 @@ def val(net, dataset, criterion, max_iter=100):
     val_iter = iter(data_loader)
 
     n_correct = 0
-    loss_avg_val = utils.averager()
     max_iter = min(max_iter, len(data_loader))
 
     with torch.no_grad():
-        for i in range(max_iter):
+        for i in tqdm(range(max_iter), desc="Validation"):
             cpu_images, cpu_texts = next(val_iter)   # <-- fix .next()
             batch_size = cpu_images.size(0)
             
@@ -140,7 +138,7 @@ def val(net, dataset, criterion, max_iter=100):
                 
             text, length = converter.encode(cpu_texts)
 
-            with autocast():   # AMP
+            with autocast('cuda'):   # AMP
                 preds = net(image)
                 preds_size = torch.IntTensor([preds.size(0)] * batch_size)
                 cost = criterion(preds.log_softmax(2), text, preds_size, length)
@@ -148,7 +146,7 @@ def val(net, dataset, criterion, max_iter=100):
             loss_avg_val.add(cost)
 
             _, preds = preds.max(2)
-            preds = preds.squeeze(2).transpose(1, 0).contiguous().view(-1)
+            preds = preds.transpose(1, 0).contiguous().view(-1)
             sim_preds = converter.decode(preds, preds_size, raw=False)
 
             for pred, target in zip(sim_preds, cpu_texts):
@@ -160,8 +158,7 @@ def val(net, dataset, criterion, max_iter=100):
     return accuracy
 
 
-def trainBatch(net, criterion, optimizer, scaler):
-    data = next(train_iter)
+def trainBatch(net, criterion, optimizer, scaler, data):
     cpu_images, cpu_texts = data
     batch_size = cpu_images.size(0)
     
@@ -173,7 +170,7 @@ def trainBatch(net, criterion, optimizer, scaler):
     text, length = converter.encode(cpu_texts)
 
     optimizer.zero_grad()
-    with autocast():   # Mixed Precision
+    with autocast('cuda'):   # Mixed Precision
         preds = net(image)
         preds_size = torch.IntTensor([preds.size(0)] * batch_size)
         cost = criterion(preds.log_softmax(2), text, preds_size, length)
@@ -186,26 +183,24 @@ def trainBatch(net, criterion, optimizer, scaler):
 
 # ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
-    train_iter = iter(train_loader)
-    i = 0
-    while i < len(train_loader):
+    for i, data in enumerate(tqdm(train_loader, desc=f"Epoch {epoch}/{opt.nepoch}")):
         crnn_model.train()
         for p in crnn_model.parameters():
             p.requires_grad = True
 
-        cost = trainBatch(crnn_model, criterion, optimizer, scaler)
+        cost = trainBatch(crnn_model, criterion, optimizer, scaler, data)
         loss_avg.add(cost)
-        i += 1
 
-        if i % opt.displayInterval == 0:
-            print(f'[{epoch}/{opt.nepoch}][{i}/{len(train_loader)}] Loss: {loss_avg.val():.4f}')
+        # Cập nhật hiển thị log để không che khuất thanh Progress TQDM
+        if (i + 1) % opt.displayInterval == 0:
+            tqdm.write(f'[{epoch}/{opt.nepoch}][{i+1}/{len(train_loader)}] Loss: {loss_avg.val():.4f}')
             loss_avg.reset()
 
-        if i % opt.valInterval == 0:
+        if (i + 1) % opt.valInterval == 0:
             val(crnn_model, test_dataset, criterion)
 
-        if i % opt.saveInterval == 0:
+        if (i + 1) % opt.saveInterval == 0:
             torch.save(crnn_model.state_dict(),
-                       f'{opt.expr_dir}/netCRNN_{epoch}_{i}.pth')
+                       f'{opt.expr_dir}/netCRNN_{epoch}_{i+1}.pth')
 
 print("Training finished!")
