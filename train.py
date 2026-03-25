@@ -73,7 +73,7 @@ else:
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
     batch_size=opt.batchSize,
-    shuffle=True,
+    shuffle=True if sampler is None else False,
     sampler=sampler,
     num_workers=opt.workers,
     collate_fn=dataset.alignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio=opt.keep_ratio))
