@@ -96,12 +96,9 @@ class averager(object):
         self.reset()
 
     def add(self, v):
-        if isinstance(v, Variable):
-            count = v.data.numel()
-            v = v.data.sum()
-        elif isinstance(v, torch.Tensor):
+        if isinstance(v, Variable) or isinstance(v, torch.Tensor):
             count = v.numel()
-            v = v.sum()
+            v = v.sum().item()
 
         self.n_count += count
         self.sum += v
@@ -136,8 +133,8 @@ def loadData(v, data):
 
 def prettyPrint(v):
     print('Size {0}, Type: {1}'.format(str(v.size()), v.data.type()))
-    print('| Max: %f | Min: %f | Mean: %f' % (v.max().data[0], v.min().data[0],
-                                              v.mean().data[0]))
+    print('| Max: %f | Min: %f | Mean: %f' % (v.max().item(), v.min().item(),
+                                              v.mean().item()))
 
 
 def assureRatio(img):

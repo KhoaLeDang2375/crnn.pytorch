@@ -177,7 +177,7 @@ def val(net, dataset, criterion, max_iter=100):
 
 
 def trainBatch(net, criterion, optimizer, scaler):
-    data = train_iter.next()
+    data = next(train_iter)
     cpu_images, cpu_texts = data
     batch_size = cpu_images.size(0)
     utils.loadData(image, cpu_images)
