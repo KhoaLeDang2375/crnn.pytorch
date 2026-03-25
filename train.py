@@ -121,27 +121,27 @@ else:
 
 
 
-def val(net, dataset, criterion, max_iter=100):
-    print('Start validation...')
+
+def val(net, dataset, criterion):
+    print('\n=== Starting Validation ===')
     net.eval()
-    for p in net.parameters():
-        p.requires_grad = False
-
-    data_loader = torch.utils.data.DataLoader(
-        dataset, 
-        shuffle=False, 
-        batch_size=opt.batchSize,
-        num_workers=opt.workers,
-        pin_memory=True
-    )
-
-    total_loss = 0.0
-    n_correct = 0          # exact match
-    total_ed = 0           # tổng edit distance
-    total_length = 0       # tổng độ dài ground truth
-    count = 0
-
+    
+    # Chỉ tạm tắt gradient cho validation, không ảnh hưởng model gốc
     with torch.no_grad():
+        data_loader = torch.utils.data.DataLoader(
+            dataset, 
+            shuffle=False, 
+            batch_size=opt.batchSize,
+            num_workers=opt.workers,
+            pin_memory=True
+        )
+
+        total_loss = 0.0
+        n_correct = 0
+        total_ed = 0
+        total_chars = 0
+        count = 0
+
         for cpu_images, cpu_texts in tqdm(data_loader, desc="Validation"):
             batch_size = cpu_images.size(0)
             text, length = converter.encode(cpu_texts)
@@ -165,12 +165,11 @@ def val(net, dataset, criterion, max_iter=100):
             total_loss += cost.item()
             count += 1
 
-            # Decode prediction
-            _, preds = preds.max(2)
-            preds = preds.transpose(1, 0).contiguous().view(-1)
-            sim_preds = converter.decode(preds, preds_size, raw=False)
+            # Decode
+            _, preds_idx = preds.max(2)
+            preds_idx = preds_idx.transpose(1, 0).contiguous().view(-1)
+            sim_preds = converter.decode(preds_idx, preds_size, raw=False)
 
-            # Tính metrics
             for pred, target in zip(sim_preds, cpu_texts):
                 target = target.lower().strip()
                 pred = pred.strip()
@@ -178,22 +177,18 @@ def val(net, dataset, criterion, max_iter=100):
                 if pred == target:
                     n_correct += 1
 
-                # Edit distance cho CER
                 ed = editdistance.eval(pred, target)
                 total_ed += ed
-                total_length += len(target)
-
-            if count >= max_iter:
-                break
+                total_chars += len(target)
 
     avg_loss = total_loss / count
-    accuracy = n_correct / float(count * opt.batchSize)
-    cer = (total_ed / total_length) * 100 if total_length > 0 else 0.0
+    accuracy = n_correct / (count * opt.batchSize)
+    cer = (total_ed / total_chars * 100) if total_chars > 0 else 0.0
 
     print(f'Validation Loss     : {avg_loss:.4f}')
-    print(f'Exact Accuracy      : {accuracy:.4f} ({n_correct}/{count*opt.batchSize})')
+    print(f'Exact Match Acc     : {accuracy:.4f}')
     print(f'Character Error Rate: {cer:.2f}%')
-    print('-' * 60)
+    print('=' * 60)
 
     return accuracy, cer
 
@@ -212,6 +207,7 @@ def trainBatch(net, criterion, optimizer, scaler, data):
 
     optimizer.zero_grad()
 
+    # Tính loss ở ngoài autocast để tránh vấn đề grad_fn với CTC + DataParallel
     preds = net(image)
     preds = preds.transpose(0, 1)
     preds_size = torch.IntTensor([preds.size(0)] * batch_size)
@@ -220,10 +216,11 @@ def trainBatch(net, criterion, optimizer, scaler, data):
 
     cost = criterion(preds.log_softmax(2), text, preds_size, length)
 
-    cost.backward()          # backward bình thường, không scaler
-    optimizer.step()
+    scaler.scale(cost).backward()
+    scaler.step(optimizer)
+    scaler.update()
 
-    return cost
+    return cost.detach()
 # ====================== TRAINING LOOP ======================
 for epoch in range(opt.nepoch):
     crnn_model.train()
