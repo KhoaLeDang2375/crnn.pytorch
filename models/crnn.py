@@ -31,10 +31,10 @@ class CRNN(nn.Module):
         # Khởi tạo MobileNetV3 pre-trained
         if backbone == 'mobilenet_v3_small':
             # Sử dụng trọng số pre-trained ImageNet để hội tụ nhanh hơn
-            mobilenet = models.mobilenet_v3_small(pretrained=True)
+            mobilenet = models.mobilenet_v3_small(weights='DEFAULT')
             cnn_out_channels = 576 
         elif backbone == 'mobilenet_v3_large':
-            mobilenet = models.mobilenet_v3_large(pretrained=True)
+            mobilenet = models.mobilenet_v3_large(weights='DEFAULT')
             cnn_out_channels = 960
         else:
             raise ValueError("Unsupported backbone type")

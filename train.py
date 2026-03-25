@@ -49,7 +49,7 @@ opt = parser.parse_args()
 # Load multi-language alphabet
 if opt.dict:
     with open(opt.dict, 'r', encoding='utf-8') as f:
-        opt.alphabet = f.read().strip()
+        opt.alphabet = f.read().rstrip('\r\n')
 
 print(opt)
 
