@@ -89,18 +89,23 @@ if __name__ == '__main__':
     parser.add_argument('--train_txt', type=str, default='rec/rec_gt_train.txt')
     parser.add_argument('--val_txt', type=str, default='rec/rec_gt_val.txt')
     parser.add_argument('--img_dir', type=str, default='rec', help='Thư mục chứa ảnh chứa tiền tố đường dẫn')
+    parser.add_argument('--train_img_dir', type=str, default='', help='Thư mục chứa ảnh tập train (ghi đè img_dir)')
+    parser.add_argument('--val_img_dir', type=str, default='', help='Thư mục chứa ảnh tập val (ghi đè img_dir)')
     parser.add_argument('--out_dir', type=str, default='lmdb_dataset')
     args = parser.parse_args()
 
+    train_dir = args.train_img_dir if args.train_img_dir else args.img_dir
+    val_dir = args.val_img_dir if args.val_img_dir else args.img_dir
+
     # 1. Chuyển đổi tập Train
     print("Đang tạo LMDB cho tập Train...")
-    train_img_list, train_label_list = read_txt(args.train_txt, args.img_dir)
+    train_img_list, train_label_list = read_txt(args.train_txt, train_dir)
     os.makedirs(f'{args.out_dir}/train', exist_ok=True)
     createDataset(f'{args.out_dir}/train', train_img_list, train_label_list)
     
     # 2. Chuyển đổi tập Val
     print("\nĐang tạo LMDB cho tập Val...")
-    val_img_list, val_label_list = read_txt(args.val_txt, args.img_dir)
+    val_img_list, val_label_list = read_txt(args.val_txt, val_dir)
     os.makedirs(f'{args.out_dir}/val', exist_ok=True)
     createDataset(f'{args.out_dir}/val', val_img_list, val_label_list)
     
